@@ -1,0 +1,222 @@
+Parameters:
+  VPCCidrBlock:
+    Type: String
+    Description: "CIDR block of the VPC.  A /16 is the largest permitted."
+    Default: "10.128.0.0/16"
+Resources:
+  VPC:
+    Type: AWS::EC2::VPC
+    Properties:
+      EnableDnsHostnames: 'true'
+      EnableDnsSupport: 'true'
+      InstanceTenancy: "default"
+      CidrBlock:
+        Ref: VPCCidrBlock
+  PrivateRouteTableA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: VPC
+  PrivateRouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: VPC 
+  PrivateRouteTableC:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: VPC
+  PublicRouteTableA:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: VPC
+  PublicRouteTableB:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: VPC
+  PublicRouteTableC:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId:
+        Ref: VPC
+  PublicSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      MapPublicIpOnLaunch: 'true'
+      CidrBlock: !Select [0,!Cidr [Ref: VPCCidrBlock,6,8]]
+  PublicSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      MapPublicIpOnLaunch: 'true'
+      CidrBlock: !Select [1,!Cidr [Ref: VPCCidrBlock,6,8]]  
+  PublicSubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      MapPublicIpOnLaunch: 'true'
+      CidrBlock: !Select [2,!Cidr [Ref: VPCCidrBlock,6,8]]  
+  PrivateSubnetA:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      MapPublicIpOnLaunch: 'true'
+      CidrBlock: !Select [3,!Cidr [Ref: VPCCidrBlock,6,8]]
+  PrivateSubnetB:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      MapPublicIpOnLaunch: 'true'
+      CidrBlock: !Select [4,!Cidr [Ref: VPCCidrBlock,6,8]] 
+  PrivateSubnetC:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId:
+        Ref: VPC
+      MapPublicIpOnLaunch: 'true'
+      CidrBlock: !Select [5,!Cidr [Ref: VPCCidrBlock,6,8]]
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      InternetGatewayId:
+        Ref: InternetGateway
+      VpcId:
+        Ref: VPC
+  PublicRouteA:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId:
+        Ref: InternetGateway
+      RouteTableId:
+        Ref: PublicRouteTableA
+  PublicRouteB:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId:
+        Ref: InternetGateway
+      RouteTableId:
+        Ref: PublicRouteTableB
+  PublicRouteC:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      GatewayId:
+        Ref: InternetGateway
+      RouteTableId:
+        Ref: PublicRouteTableC
+  NATEIPA:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: "vpc"
+    DependsOn: VPC
+  NATEIPB:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: "vpc"
+    DependsOn: VPC
+  NATEIPC:
+    Type: AWS::EC2::EIP
+    Properties:
+      Domain: "vpc"
+    DependsOn: VPC
+  NATGatewayA:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId:
+        Ref: PublicSubnetA
+      AllocationId: !GetAtt NATEIPA.AllocationId
+    DependsOn: NATEIPA
+  NATGatewayB:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId:
+        Ref: PublicSubnetB
+      AllocationId: !GetAtt NATEIPB.AllocationId
+    DependsOn: NATEIPB
+  NATGatewayC:
+    Type: AWS::EC2::NatGateway
+    Properties:
+      SubnetId:
+        Ref: PublicSubnetC
+      AllocationId: !GetAtt NATEIPC.AllocationId
+    DependsOn: NATEIPC
+  PrivateRouteA:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId:
+        Ref: NATGatewayA
+      RouteTableId:
+        Ref: PrivateRouteTableA
+  PrivateRouteB:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId:
+        Ref: NATGatewayB
+      RouteTableId:
+        Ref: PrivateRouteTableB
+  PrivateRouteC:
+    Type: AWS::EC2::Route
+    Properties:
+      DestinationCidrBlock: "0.0.0.0/0"
+      NatGatewayId:
+        Ref: NATGatewayC
+      RouteTableId:
+        Ref: PrivateRouteTableC
+Outputs:
+  Vpc:
+    Description: "The ID of the VPC"
+    Value:
+      Ref: VPC
+    Export:
+      Name: VpcId
+  PrivateSubnetA:
+    Description: "Private Subnet A"
+    Value:
+      Ref: PrivateSubnetA
+    Export:
+      Name: PrivateSubnetAId
+  PrivateSubnetB:
+    Description: "Private Subnet B"
+    Value:
+      Ref: PrivateSubnetB
+    Export:
+      Name: PrivateSubnetBId
+  PrivateSubnetC:
+    Description: "Private Subnet C"
+    Value:
+      Ref: PrivateSubnetC
+    Export:
+      Name: PrivateSubnetCId
+  PublicSubnetA:
+    Description: "Public Subnet A"
+    Value:
+      Ref: PublicSubnetA
+    Export:
+      Name: PublicSubnetAId
+  PublicSubnetB:
+    Description: "Public Subnet B"
+    Value:
+      Ref: PublicSubnetB
+    Export:
+      Name: PublicSubnetBId
+  PublicSubnetC:
+    Description: "Public Subnet C"
+    Value:
+      Ref: PublicSubnetC
+    Export:
+      Name: PublicSubnetCId
