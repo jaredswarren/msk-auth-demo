@@ -3,7 +3,115 @@ Parameters:
     Type: String
     Description: "CIDR block of the VPC.  A /16 is the largest permitted."
     Default: "10.128.0.0/16"
+  LatestAmiId:
+    Type: 'AWS::SSM::Parameter::Value<AWS::EC2::Image::Id>'
+    Default: '/aws/service/ami-amazon-linux-latest/amzn2-ami-hvm-x86_64-gp2'
+  BastionInstanceType:
+    Type: String
+    Default: t3.small
 Resources:
+  MSKCluster:
+    Type: AWS::MSK::Cluster
+    Properties:
+      ClusterName: MSK-reInvent-demo
+      KafkaVersion: "2.2.1"
+      NumberOfBrokerNodes: 3
+      BrokerNodeGroupInfo:
+        ClientSubnets:
+         - !Ref PrivateSubnetA
+         - !Ref PrivateSubnetB
+         - !Ref PrivateSubnetC
+        InstanceType: "kafka.m5.large"
+        SecurityGroups: 
+         - !Ref MSKSecurityGroup
+        StorageInfo:
+          EBSStorageInfo:
+            VolumeSize: 80
+  PrivateBastionHost:
+    Type: AWS::EC2::Instance
+    Properties:
+      ImageId: !Ref LatestAmiId
+      SubnetId: !Ref PrivateSubnetA
+      IamInstanceProfile: !Ref BastionInstanceProfile 
+      InstanceType: !Ref BastionInstanceType
+      SecurityGroupIds: 
+        - !Ref BastionSecurityGroup
+  MSKSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "MSKSecurityGroup"
+      GroupDescription: "MSK Security Group"
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - CidrIp: "0.0.0.0/0"
+          IpProtocol: "tcp"
+          FromPort: 0
+          ToPort: 65535
+      SecurityGroupIngress:
+        - SourceSecurityGroupId: !Ref BastionSecurityGroup
+          IpProtocol: "tcp"
+          FromPort: 9092
+          ToPort: 9092
+          Description: "Plaintext broker connections"
+        - SourceSecurityGroupId: !Ref BastionSecurityGroup
+          IpProtocol: "tcp"
+          FromPort: 9094
+          ToPort: 9094
+          Description: "TLS broker connections"
+        - SourceSecurityGroupId: !Ref BastionSecurityGroup
+          IpProtocol: "tcp"
+          FromPort: 9096
+          ToPort: 9096
+          Description: "Plaintext broker connections"
+        - SourceSecurityGroupId: !Ref BastionSecurityGroup
+          IpProtocol: "tcp"
+          FromPort: 9098
+          ToPort: 9098
+          Description: "IAM broker connections"
+        - SourceSecurityGroupId: !Ref BastionSecurityGroup
+          IpProtocol: "tcp"
+          FromPort: 2181
+          ToPort: 2181
+          Description: "Zookeeper default"
+        - SourceSecurityGroupId: !Ref BastionSecurityGroup
+          IpProtocol: "tcp"
+          FromPort: 2182
+          ToPort: 2182
+          Description: "Zookeeper TLS"
+  BastionSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: "BastionSecurityGroup"
+      GroupDescription: "Bastion Security Group"
+      VpcId: !Ref VPC
+      SecurityGroupEgress:
+        - "CidrIp": "0.0.0.0/0"
+          "IpProtocol": "tcp"
+          "FromPort": 0
+          "ToPort": 65535
+  BastionInstanceProfile: 
+    Type: AWS::IAM::InstanceProfile
+    Properties: 
+      Path: /
+      Roles: 
+        - !Ref BastionInstanceRole
+  BastionInstanceRole:
+    Type: AWS::IAM::Role
+    Properties: 
+      AssumeRolePolicyDocument: 
+        Version: 2012-10-17
+        Statement: 
+          - 
+            Effect: Allow
+            Principal: 
+              Service: 
+                - ec2.amazonaws.com
+            Action: 
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        # The managed IAM policy AmazonSSMManagedInstanceCore grants access to Session Manager
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
   VPC:
     Type: AWS::EC2::VPC
     Properties:
@@ -48,42 +156,66 @@ Resources:
       VpcId:
         Ref: VPC
       MapPublicIpOnLaunch: 'true'
+      AvailabilityZone: !Join ["",[!Ref "AWS::Region","a"]]
       CidrBlock: !Select [0,!Cidr [Ref: VPCCidrBlock,6,8]]
+      Tags:
+        - Key: "Name"
+          Value: "public-subnet-a"
   PublicSubnetB:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId:
         Ref: VPC
       MapPublicIpOnLaunch: 'true'
-      CidrBlock: !Select [1,!Cidr [Ref: VPCCidrBlock,6,8]]  
+      AvailabilityZone: !Join ["",[!Ref "AWS::Region","b"]]
+      CidrBlock: !Select [1,!Cidr [Ref: VPCCidrBlock,6,8]] 
+      Tags:
+        - Key: "Name"
+          Value: "public-subnet-b" 
   PublicSubnetC:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId:
         Ref: VPC
       MapPublicIpOnLaunch: 'true'
+      AvailabilityZone: !Join ["",[!Ref "AWS::Region","c"]]
       CidrBlock: !Select [2,!Cidr [Ref: VPCCidrBlock,6,8]]  
+      Tags:
+        - Key: "Name"
+          Value: "public-subnet-c"
   PrivateSubnetA:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId:
         Ref: VPC
-      MapPublicIpOnLaunch: 'true'
+      MapPublicIpOnLaunch: 'false'
+      AvailabilityZone: !Join ["",[!Ref "AWS::Region","a"]]
       CidrBlock: !Select [3,!Cidr [Ref: VPCCidrBlock,6,8]]
+      Tags:
+        - Key: "Name"
+          Value: "private-subnet-a"
   PrivateSubnetB:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId:
         Ref: VPC
-      MapPublicIpOnLaunch: 'true'
+      MapPublicIpOnLaunch: 'false'
+      AvailabilityZone: !Join ["",[!Ref "AWS::Region","b"]]
       CidrBlock: !Select [4,!Cidr [Ref: VPCCidrBlock,6,8]] 
+      Tags:
+        - Key: "Name"
+          Value: "private-subnet-b"
   PrivateSubnetC:
     Type: AWS::EC2::Subnet
     Properties:
       VpcId:
         Ref: VPC
-      MapPublicIpOnLaunch: 'true'
+      MapPublicIpOnLaunch: 'false'
+      AvailabilityZone: !Join ["",[!Ref "AWS::Region","c"]]
       CidrBlock: !Select [5,!Cidr [Ref: VPCCidrBlock,6,8]]
+      Tags:
+        - Key: "Name"
+          Value: "private-subnet-c"
   InternetGateway:
     Type: AWS::EC2::InternetGateway
   InternetGatewayAttachment:
@@ -122,43 +254,19 @@ Resources:
     Properties:
       Domain: "vpc"
     DependsOn: VPC
-  NATEIPB:
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: "vpc"
-    DependsOn: VPC
-  NATEIPC:
-    Type: AWS::EC2::EIP
-    Properties:
-      Domain: "vpc"
-    DependsOn: VPC
-  NATGatewayA:
+  NATGateway:
     Type: AWS::EC2::NatGateway
     Properties:
       SubnetId:
         Ref: PublicSubnetA
       AllocationId: !GetAtt NATEIPA.AllocationId
     DependsOn: NATEIPA
-  NATGatewayB:
-    Type: AWS::EC2::NatGateway
-    Properties:
-      SubnetId:
-        Ref: PublicSubnetB
-      AllocationId: !GetAtt NATEIPB.AllocationId
-    DependsOn: NATEIPB
-  NATGatewayC:
-    Type: AWS::EC2::NatGateway
-    Properties:
-      SubnetId:
-        Ref: PublicSubnetC
-      AllocationId: !GetAtt NATEIPC.AllocationId
-    DependsOn: NATEIPC
   PrivateRouteA:
     Type: AWS::EC2::Route
     Properties:
       DestinationCidrBlock: "0.0.0.0/0"
       NatGatewayId:
-        Ref: NATGatewayA
+        Ref: NATGateway
       RouteTableId:
         Ref: PrivateRouteTableA
   PrivateRouteB:
@@ -166,7 +274,7 @@ Resources:
     Properties:
       DestinationCidrBlock: "0.0.0.0/0"
       NatGatewayId:
-        Ref: NATGatewayB
+        Ref: NATGateway
       RouteTableId:
         Ref: PrivateRouteTableB
   PrivateRouteC:
@@ -174,9 +282,39 @@ Resources:
     Properties:
       DestinationCidrBlock: "0.0.0.0/0"
       NatGatewayId:
-        Ref: NATGatewayC
+        Ref: NATGateway
       RouteTableId:
         Ref: PrivateRouteTableC
+  PrivateRouteTableAAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableA
+      SubnetId: !Ref PrivateSubnetA
+  PrivateRouteTableBAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableB
+      SubnetId: !Ref PrivateSubnetB
+  PrivateRouteTableCAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PrivateRouteTableC
+      SubnetId: !Ref PrivateSubnetC
+  PublicRouteTableAAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTableA
+      SubnetId: !Ref PublicSubnetA
+  PublicRouteTableBAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTableB
+      SubnetId: !Ref PublicSubnetB
+  PublicRouteTableCAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      RouteTableId: !Ref PublicRouteTableC
+      SubnetId: !Ref PublicSubnetC
 Outputs:
   Vpc:
     Description: "The ID of the VPC"
