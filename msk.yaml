@@ -129,6 +129,20 @@ Resources:
       ManagedPolicyArns:
         # The managed IAM policy AmazonSSMManagedInstanceCore grants access to Session Manager
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
+        - !Ref BastionInstancePolicy
+  BastionInstancePolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: MSK Admin Policy
+      ManagedPolicyName: MSKAdminPolicy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Action:
+              - 'kafka:*'
+            Resource: '*'
   VPC:
     Type: AWS::EC2::VPC
     Properties:
