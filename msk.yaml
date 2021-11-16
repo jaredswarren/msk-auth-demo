@@ -27,7 +27,11 @@ Resources:
         StorageInfo:
           EBSStorageInfo:
             VolumeSize: 80
-  PrivateBastionHost:
+      EncryptionInfo:
+        EncryptionInTransit:
+          ClientBroker: TLS
+          InCluster: True
+  PrivateBastionHost01:
     Type: AWS::EC2::Instance
     DependsOn: MSKCluster
     Properties:
@@ -51,6 +55,8 @@ Resources:
               mv kafka_2.12-2.2.1 /opt/
               echo export MSK_ARN=${MSKARN} >> /opt/kafka_2.12-2.2.1/msk.env
               echo export PATH=${!PATH}:/opt/kafka_2.12-2.2.1/bin >> /opt/kafka_2.12-2.2.1/msk.env
+              echo -E export MSK_BOOTSTRAP=`aws kafka get-bootstrap-brokers --cluster-arn ${MSKARN} --query BootstrapBrokerStringTls --region ${AWS::Region}` >> /opt/kafka_2.12-2.2.1/msk.env
+              echo -E export MSK_ZOOKEEPER=`aws kafka describe-cluster --cluster-arn ${MSKARN} --region ${AWS::Region} --query ClusterInfo.ZookeeperConnectString` >> /opt/kafka_2.12-2.2.1/msk.env
               chmod 444 /opt/kafka_2.12-2.2.1/msk.env
             - MSKARN: !Ref MSKCluster
   MSKSecurityGroup:
