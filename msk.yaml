@@ -596,7 +596,7 @@ Resources:
             Action:
               - "secretsmanager:GetSecretValue"
               - "secretsmanager:DescribeSecret"
-            Resource: 'arn:aws:secretsmanager:us-east-2:519051283737:secret:AmazonMSK_*'
+            Resource: !Sub 'arn:${AWS::Partition}:secretsmanager:${AWS::Region}:${AWS::AccountId}:secret:AmazonMSK_*'
   VPC:
     Type: AWS::EC2::VPC
     Properties:
