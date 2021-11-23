@@ -18,7 +18,7 @@ Resources:
       SecretString: |
         {
           "username": "alice",
-          "secret": "alice-secret"
+          "password": "alice-secret"
         } 
   SecretsManagerKMSKey:
     Type: AWS::KMS::Key
@@ -486,10 +486,10 @@ Resources:
               echo -E export MSK02_BOOTSTRAP=`aws kafka get-bootstrap-brokers --cluster-arn ${MSK02ARN} --query BootstrapBrokerStringTls --region ${AWS::Region}` >> /opt/kafka_2.12-2.2.1/msk.env
               echo -E export MSK02_ZOOKEEPER=`aws kafka describe-cluster --cluster-arn ${MSK02ARN} --region ${AWS::Region} --query ClusterInfo.ZookeeperConnectString` >> /opt/kafka_2.12-2.2.1/msk.env
               echo export MSK03_ARN=${MSK03ARN} >> /opt/kafka_2.12-2.2.1/msk.env
-              echo -E export MSK03_BOOTSTRAP=`aws kafka get-bootstrap-brokers --cluster-arn ${MSK03ARN} --query BootstrapBrokerStringTls --region ${AWS::Region}` >> /opt/kafka_2.12-2.2.1/msk.env
+              echo -E export MSK03_BOOTSTRAP=`aws kafka get-bootstrap-brokers --cluster-arn ${MSK03ARN} --query BootstrapBrokerStringSaslScram --region ${AWS::Region}` >> /opt/kafka_2.12-2.2.1/msk.env
               echo -E export MSK03_ZOOKEEPER=`aws kafka describe-cluster --cluster-arn ${MSK03ARN} --region ${AWS::Region} --query ClusterInfo.ZookeeperConnectString` >> /opt/kafka_2.12-2.2.1/msk.env
               echo export MSK04_ARN=${MSK04ARN} >> /opt/kafka_2.12-2.2.1/msk.env
-              echo -E export MSK04_BOOTSTRAP=`aws kafka get-bootstrap-brokers --cluster-arn ${MSK04ARN} --query BootstrapBrokerStringTls --region ${AWS::Region}` >> /opt/kafka_2.12-2.2.1/msk.env
+              echo -E export MSK04_BOOTSTRAP=`aws kafka get-bootstrap-brokers --cluster-arn ${MSK04ARN} --query BootstrapBrokerStringSaslIam --region ${AWS::Region}` >> /opt/kafka_2.12-2.2.1/msk.env
               echo -E export MSK04_ZOOKEEPER=`aws kafka describe-cluster --cluster-arn ${MSK04ARN} --region ${AWS::Region} --query ClusterInfo.ZookeeperConnectString` >> /opt/kafka_2.12-2.2.1/msk.env
               chmod 444 /opt/kafka_2.12-2.2.1/msk.env
             - MSK01ARN: !Ref MSKCluster01
