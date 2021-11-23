@@ -355,7 +355,7 @@ Resources:
   MSKCluster01:
     Type: AWS::MSK::Cluster
     Properties:
-      ClusterName: MSK-reInvent-demo-01
+      ClusterName: MSK-Demo01
       KafkaVersion: "2.2.1"
       NumberOfBrokerNodes: 3
       BrokerNodeGroupInfo:
@@ -380,7 +380,7 @@ Resources:
     Type: AWS::MSK::Cluster
     DependsOn: UpdateACMPCAIssueCertificate
     Properties:
-      ClusterName: MSK-reInvent-demo-02
+      ClusterName: MSK-Demo02
       KafkaVersion: "2.2.1"
       NumberOfBrokerNodes: 3
       BrokerNodeGroupInfo:
@@ -406,7 +406,7 @@ Resources:
   MSKCluster03:
     Type: AWS::MSK::Cluster
     Properties:
-      ClusterName: MSK-reInvent-demo-03
+      ClusterName: MSK-Demo03
       KafkaVersion: "2.2.1"
       NumberOfBrokerNodes: 3
       BrokerNodeGroupInfo:
@@ -431,7 +431,7 @@ Resources:
   MSKCluster04:
     Type: AWS::MSK::Cluster
     Properties:
-      ClusterName: MSK-reInvent-demo-04
+      ClusterName: MSK-Demo04
       KafkaVersion: "2.2.1"
       NumberOfBrokerNodes: 3
       BrokerNodeGroupInfo:
