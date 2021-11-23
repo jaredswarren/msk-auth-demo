@@ -70,6 +70,18 @@ Resources:
               - 'kms:GenerateDataKey'
               - 'kms:GenerateDataKeyWithoutPlaintext'
             Resource: '*'
+          - Sid: Allow use of the key
+            Effect: Allow
+            Principal:
+              AWS: !GetAtt BastionInstanceRole.Arn
+            Action:
+              - 'kms:DescribeKey'
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey'
+              - 'kms:GenerateDataKeyWithoutPlaintext'
+            Resource: '*'
   LambdaExecutionRole:
     Type: AWS::IAM::Role
     Properties:
@@ -577,7 +589,14 @@ Resources:
               - "acm-pca:ListCertificateAuthorities"
               - "acm-pca:IssueCertificate"
               - "acm-pca:GetCertificate"
+              - "secretsmanager:ListSecrets"
             Resource: '*'
+          -
+            Effect: Allow
+            Action:
+              - "secretsmanager:GetSecretValue"
+              - "secretsmanager:DescribeSecret"
+            Resource: 'arn:aws:secretsmanager:us-east-2:519051283737:secret:AmazonMSK_*'
   VPC:
     Type: AWS::EC2::VPC
     Properties:
