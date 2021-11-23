@@ -10,6 +10,327 @@ Parameters:
     Type: String
     Default: t3.small
 Resources:
+  MSKSecretManager:
+    Type: AWS::SecretsManager::Secret
+    Properties:
+      KmsKeyId: !Ref SecretsManagerKMSKey
+      Name: AmazonMSK_Secret01
+      SecretString: |
+        {
+          "username": "alice",
+          "secret": "alice-secret"
+        } 
+  SecretsManagerKMSKey:
+    Type: AWS::KMS::Key
+    Properties:
+      KeySpec: SYMMETRIC_DEFAULT
+      KeyPolicy:
+        Version: 2012-10-17
+        Id: key-default-1
+        Statement:
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: Enable IAM User Permissions
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:role/Admin'
+            Action: 'kms:*'
+            Resource: '*'
+          - Sid: Allow administration of the key
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:role/Admin'
+            Action:
+              - 'kms:Create*'
+              - 'kms:Describe*'
+              - 'kms:Enable*'
+              - 'kms:List*'
+              - 'kms:Put*'
+              - 'kms:Update*'
+              - 'kms:Revoke*'
+              - 'kms:Disable*'
+              - 'kms:Get*'
+              - 'kms:Delete*'
+              - 'kms:ScheduleKeyDeletion'
+              - 'kms:CancelKeyDeletion'
+            Resource: '*'
+          - Sid: Allow use of the key
+            Effect: Allow
+            Principal:
+              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:role/Admin'
+            Action:
+              - 'kms:DescribeKey'
+              - 'kms:Encrypt'
+              - 'kms:Decrypt'
+              - 'kms:ReEncrypt*'
+              - 'kms:GenerateDataKey'
+              - 'kms:GenerateDataKeyWithoutPlaintext'
+            Resource: '*'
+  LambdaExecutionRole:
+    Type: AWS::IAM::Role
+    Properties:
+      AssumeRolePolicyDocument: 
+        Version: 2012-10-17
+        Statement: 
+          - 
+            Effect: Allow
+            Principal: 
+              Service: 
+                - lambda.amazonaws.com
+            Action: 
+              - sts:AssumeRole
+      Path: /
+      ManagedPolicyArns:
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonMSKFullAccess
+        - !Sub arn:${AWS::Partition}:iam::aws:policy/AWSCertificateManagerPrivateCAFullAccess
+  InitializeACMPCALambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 180
+      MemorySize: 128
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      Code:
+        ZipFile: |
+          import json
+          import http.client
+          import boto3
+          import time
+
+          def send_response(status, message, event):
+              msg = {
+                  'Status': status,
+                  'Reason': message,
+                  'PhysicalResourceId': event['LogicalResourceId']+'001',
+                  'StackId': event['StackId'],
+                  'RequestId': event['RequestId'],
+                  'LogicalResourceId': event['LogicalResourceId'],
+              }
+              presigned = event['ResponseURL']
+              splits = presigned.split("/")
+              server = splits[2]
+              parms = "/".join(splits[3:])
+              parms = "/"+parms
+              print("Response Server: "+server)
+              print("Response parameters: "+parms)
+              print("Response message: "+json.dumps(msg))
+              msgStr = json.dumps(msg)
+              headers = {"Content-Type": "", "Content-Length": len(msgStr)}
+              connection = http.client.HTTPSConnection(server)
+              connection.request("PUT", parms,body=msgStr,headers=headers)
+              response = connection.getresponse()
+              print("S3 status response: {} reason: {}".format(response.status, response.reason))
+
+
+          def lambda_handler(event, context):
+              acmpca = boto3.client("acm-pca")
+              csrResponse = acmpca.get_certificate_authority_csr(CertificateAuthorityArn=event['ResourceProperties']['CertificateAuthorityArn'])
+              csrString = csrResponse['Csr']
+              print(csrString)
+              csrBytes = csrString.encode('utf-8')
+
+              certIssueResponse = acmpca.issue_certificate(
+                  CertificateAuthorityArn=event['ResourceProperties']['CertificateAuthorityArn'],
+                  Csr=csrBytes,
+                  SigningAlgorithm="SHA256WITHRSA",
+                  TemplateArn="arn:aws:acm-pca:::template/RootCACertificate/V1",
+                  Validity= {"Type": "DAYS", "Value": 90}
+              )
+
+              certArn = certIssueResponse['CertificateArn']
+              print("Issued Certificate Arn: {}".format(certArn))
+
+              notDone = True
+              while(notDone):
+                  try:
+                      certResponse = acmpca.get_certificate(
+                          CertificateAuthorityArn=event['ResourceProperties']['CertificateAuthorityArn'],
+                          CertificateArn=certArn
+                      )
+                      notDone = False
+                  except acmpca.exceptions.RequestInProgressException as e:
+                      print("Certificate isn't ready yet. Sleeping a bit.")
+                      time.sleep(10)
+
+              print("Cert response: {}".format(certResponse))
+              certString = certResponse['Certificate']
+              print("Certificate: {}".format(certString))
+
+              certBytes = certString.encode('utf-8')
+
+              importResponse = acmpca.import_certificate_authority_certificate(
+                  CertificateAuthorityArn=event['ResourceProperties']['CertificateAuthorityArn'],
+                  Certificate=certBytes
+              )
+
+              print("Import response: {}".format(importResponse))
+              
+              send_response("SUCCESS", "Activated.", event)
+  UpdateSecurityToIAMLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 60
+      MemorySize: 512
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import http.client
+
+          def send_response(status, message, event):
+              msg = {
+                'Status': status,
+                'Reason': message,
+                'PhysicalResourceId': event['LogicalResourceId']+'001',
+                'StackId': event['StackId'],
+                'RequestId': event['RequestId'],
+                'LogicalResourceId': event['LogicalResourceId'],
+              }
+              presigned = event['ResponseURL']
+              splits = presigned.split("/")
+              server = splits[2]
+              parms = "/".join(splits[3:])
+              parms = "/"+parms
+              print("Response Server: "+server)
+              print("Response parameters: "+parms)
+              print("Response message: "+json.dumps(msg))
+              msgStr = json.dumps(msg)
+              headers = {"Content-Type": "", "Content-Length": len(msgStr)}
+              connection = http.client.HTTPSConnection(server)
+              connection.request("PUT", parms,body=msgStr,headers=headers)
+              response = connection.getresponse()
+              print("S3 status response: {} reason: {}".format(response.status, response.reason))
+              
+          def lambda_handler(event, context):
+              print(event)
+              requestType = event['RequestType']
+              if requestType == 'Create':
+                  try:
+                      arn = event['ResourceProperties']['ClusterArn']
+                      certAuthArn = event['ResourceProperties']['CertificateAuthorityArn']
+              
+                      msk = boto3.client("kafka")
+              
+                      describe = msk.describe_cluster(ClusterArn=arn)
+              
+                      currentVersion = describe['ClusterInfo']['CurrentVersion']
+                  
+                      msk.update_security(
+                          CurrentVersion=currentVersion,
+                          ClusterArn=arn,
+                          ClientAuthentication={
+                          "Tls": {
+                              'CertificateAuthorityArnList': [certAuthArn],
+                                  'Enabled': True,
+                              }
+                          }
+                      )
+                      send_response("SUCCESS", "Cluster security update started.", event)
+                  except Exception as e:
+                      print("Exception while updating cluster security")
+                      print(e)
+                      send_response("FAILED", "Cluster security update failed.", event)
+                      
+              elif requestType == 'Delete':
+                  send_response("SUCCESS", "Cluster security update delete is a no-op", event)      
+  UpdateSecurityToTLSLambda:
+    Type: AWS::Lambda::Function
+    Properties:
+      Role: !GetAtt LambdaExecutionRole.Arn
+      Timeout: 60
+      MemorySize: 512
+      Handler: index.lambda_handler
+      Runtime: python3.9
+      Code:
+        ZipFile: |
+          import json
+          import boto3
+          import http.client
+
+          def send_response(status, message, event):
+              msg = {
+                'Status': status,
+                'Reason': message,
+                'PhysicalResourceId': event['LogicalResourceId']+'001',
+                'StackId': event['StackId'],
+                'RequestId': event['RequestId'],
+                'LogicalResourceId': event['LogicalResourceId'],
+              }
+              presigned = event['ResponseURL']
+              splits = presigned.split("/")
+              server = splits[2]
+              parms = "/".join(splits[3:])
+              parms = "/"+parms
+              print("Response Server: "+server)
+              print("Response parameters: "+parms)
+              print("Response message: "+json.dumps(msg))
+              msgStr = json.dumps(msg)
+              headers = {"Content-Type": "", "Content-Length": len(msgStr)}
+              connection = http.client.HTTPSConnection(server)
+              connection.request("PUT", parms,body=msgStr,headers=headers)
+              response = connection.getresponse()
+              print("S3 status response: {} reason: {}".format(response.status, response.reason))
+
+              
+              
+          def lambda_handler(event, context):
+              print(event)
+              requestType = event['RequestType']
+              if requestType == 'Create':
+                  try:
+                      arn = event['ResourceProperties']['ClusterArn']
+                      certAuthArn = event['ResourceProperties']['CertificateAuthorityArn']
+              
+                      msk = boto3.client("kafka")
+              
+                      describe = msk.describe_cluster(ClusterArn=arn)
+              
+                      currentVersion = describe['ClusterInfo']['CurrentVersion']
+                  
+                      msk.update_security(
+                          CurrentVersion=currentVersion,
+                          ClusterArn=arn,
+                          ClientAuthentication={
+                          "Tls": {
+                              'CertificateAuthorityArnList': [certAuthArn],
+                                  'Enabled': True,
+                              }
+                          }
+                      )
+                      send_response("SUCCESS", "Cluster security update started.", event)
+                  except Exception as e:
+                      print("Exception while updating cluster security")
+                      print(e)
+                      send_response("FAILED", "Cluster security update failed.", event)
+                      
+              elif requestType == 'Delete':
+                  send_response("SUCCESS", "Cluster security update delete is a no-op", event)            
+  UpdateACMPCAIssueCertificate:
+    Type: Custom::InitializeACMPCALambda
+    DependsOn: CertificateAuthority
+    Properties:
+      ServiceToken: !GetAtt InitializeACMPCALambda.Arn
+      Region: !Ref AWS::Region
+      CertificateAuthorityArn: !GetAtt CertificateAuthority.Arn      
+#  UpdateMSK02ToTlsAuthentication:
+#    Type: Custom::UpdateSecurityToTLSLambda
+#    DependsOn: 
+#      - UpdateACMPCAIssueCertificate
+#      - MSKCluster02
+#    Properties:
+#      ServiceToken: !GetAtt UpdateSecurityToTLSLambda.Arn
+#      Region: !Ref AWS::Region
+#      ClusterArn: !Ref MSKCluster02
+#      CertificateAuthorityArn: !GetAtt CertificateAuthority.Arn
   CertificateAuthority:
     Type: AWS::ACMPCA::CertificateAuthority
     Properties:
@@ -30,7 +351,7 @@ Resources:
          - !Ref PrivateSubnetA
          - !Ref PrivateSubnetB
          - !Ref PrivateSubnetC
-        InstanceType: "kafka.m5.large"
+        InstanceType: "kafka.t3.small"
         SecurityGroups: 
          - !Ref MSKSecurityGroup
         StorageInfo:
@@ -40,8 +361,12 @@ Resources:
         EncryptionInTransit:
           ClientBroker: TLS
           InCluster: True
+      ClientAuthentication:
+        Unauthenticated:
+          Enabled: True
   MSKCluster02:
     Type: AWS::MSK::Cluster
+    DependsOn: UpdateACMPCAIssueCertificate
     Properties:
       ClusterName: MSK-reInvent-demo-02
       KafkaVersion: "2.2.1"
@@ -51,7 +376,7 @@ Resources:
          - !Ref PrivateSubnetA
          - !Ref PrivateSubnetB
          - !Ref PrivateSubnetC
-        InstanceType: "kafka.m5.large"
+        InstanceType: "kafka.t3.small"
         SecurityGroups: 
          - !Ref MSKSecurityGroup
         StorageInfo:
@@ -61,6 +386,11 @@ Resources:
         EncryptionInTransit:
           ClientBroker: TLS
           InCluster: True
+      ClientAuthentication:
+        Tls:
+          CertificateAuthorityArnList:
+            - !GetAtt CertificateAuthority.Arn
+          Enabled: True
   MSKCluster03:
     Type: AWS::MSK::Cluster
     Properties:
@@ -72,7 +402,7 @@ Resources:
          - !Ref PrivateSubnetA
          - !Ref PrivateSubnetB
          - !Ref PrivateSubnetC
-        InstanceType: "kafka.m5.large"
+        InstanceType: "kafka.t3.small"
         SecurityGroups: 
          - !Ref MSKSecurityGroup
         StorageInfo:
@@ -82,6 +412,35 @@ Resources:
         EncryptionInTransit:
           ClientBroker: TLS
           InCluster: True
+      ClientAuthentication:
+        Sasl:
+          Scram:
+            Enabled: True
+  MSKCluster04:
+    Type: AWS::MSK::Cluster
+    Properties:
+      ClusterName: MSK-reInvent-demo-04
+      KafkaVersion: "2.2.1"
+      NumberOfBrokerNodes: 3
+      BrokerNodeGroupInfo:
+        ClientSubnets:
+         - !Ref PrivateSubnetA
+         - !Ref PrivateSubnetB
+         - !Ref PrivateSubnetC
+        InstanceType: "kafka.t3.small"
+        SecurityGroups: 
+         - !Ref MSKSecurityGroup
+        StorageInfo:
+          EBSStorageInfo:
+            VolumeSize: 80
+      EncryptionInfo:
+        EncryptionInTransit:
+          ClientBroker: TLS
+          InCluster: True
+      ClientAuthentication:
+        Sasl:
+          Iam:
+            Enabled: True
   PrivateBastionHost:
     Type: AWS::EC2::Instance
     Properties:
@@ -117,10 +476,14 @@ Resources:
               echo export MSK03_ARN=${MSK03ARN} >> /opt/kafka_2.12-2.2.1/msk.env
               echo -E export MSK03_BOOTSTRAP=`aws kafka get-bootstrap-brokers --cluster-arn ${MSK03ARN} --query BootstrapBrokerStringTls --region ${AWS::Region}` >> /opt/kafka_2.12-2.2.1/msk.env
               echo -E export MSK03_ZOOKEEPER=`aws kafka describe-cluster --cluster-arn ${MSK03ARN} --region ${AWS::Region} --query ClusterInfo.ZookeeperConnectString` >> /opt/kafka_2.12-2.2.1/msk.env
+              echo export MSK04_ARN=${MSK04ARN} >> /opt/kafka_2.12-2.2.1/msk.env
+              echo -E export MSK04_BOOTSTRAP=`aws kafka get-bootstrap-brokers --cluster-arn ${MSK04ARN} --query BootstrapBrokerStringTls --region ${AWS::Region}` >> /opt/kafka_2.12-2.2.1/msk.env
+              echo -E export MSK04_ZOOKEEPER=`aws kafka describe-cluster --cluster-arn ${MSK04ARN} --region ${AWS::Region} --query ClusterInfo.ZookeeperConnectString` >> /opt/kafka_2.12-2.2.1/msk.env
               chmod 444 /opt/kafka_2.12-2.2.1/msk.env
             - MSK01ARN: !Ref MSKCluster01
               MSK02ARN: !Ref MSKCluster02 
               MSK03ARN: !Ref MSKCluster03
+              MSK04ARN: !Ref MSKCluster04
   MSKSecurityGroup:
     Type: AWS::EC2::SecurityGroup
     Properties:
@@ -211,6 +574,9 @@ Resources:
             Action:
               - 'kafka:*'
               - "acm-pca:GetCertificateAuthorityCertificate"
+              - "acm-pca:ListCertificateAuthorities"
+              - "acm-pca:IssueCertificate"
+              - "acm-pca:GetCertificate"
             Resource: '*'
   VPC:
     Type: AWS::EC2::VPC
