@@ -31,44 +31,14 @@ Resources:
           - Sid: Enable IAM User Permissions
             Effect: Allow
             Principal:
-              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:root'
+              AWS: !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:root'
             Action: 'kms:*'
             Resource: '*'
           - Sid: Enable IAM User Permissions
             Effect: Allow
             Principal:
-              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:role/Admin'
+              AWS: !GetAtt BastionInstanceRole.Arn
             Action: 'kms:*'
-            Resource: '*'
-          - Sid: Allow administration of the key
-            Effect: Allow
-            Principal:
-              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:role/Admin'
-            Action:
-              - 'kms:Create*'
-              - 'kms:Describe*'
-              - 'kms:Enable*'
-              - 'kms:List*'
-              - 'kms:Put*'
-              - 'kms:Update*'
-              - 'kms:Revoke*'
-              - 'kms:Disable*'
-              - 'kms:Get*'
-              - 'kms:Delete*'
-              - 'kms:ScheduleKeyDeletion'
-              - 'kms:CancelKeyDeletion'
-            Resource: '*'
-          - Sid: Allow use of the key
-            Effect: Allow
-            Principal:
-              AWS: !Sub 'arn:aws:iam::${AWS::AccountId}:role/Admin'
-            Action:
-              - 'kms:DescribeKey'
-              - 'kms:Encrypt'
-              - 'kms:Decrypt'
-              - 'kms:ReEncrypt*'
-              - 'kms:GenerateDataKey'
-              - 'kms:GenerateDataKeyWithoutPlaintext'
             Resource: '*'
           - Sid: Allow use of the key
             Effect: Allow
@@ -212,6 +182,11 @@ Resources:
         OrganizationalUnit: "Workshops"
   MSKCluster01:
     Type: AWS::MSK::Cluster
+    DependsOn: 
+      - PrivateRouteTableAAssociation
+      - PrivateRouteA
+      - NATGateway
+      - InternetGatewayAttachment
     Properties:
       ClusterName: MSK-Demo01
       KafkaVersion: "2.2.1"
@@ -236,7 +211,12 @@ Resources:
           Enabled: True
   MSKCluster02:
     Type: AWS::MSK::Cluster
-    DependsOn: UpdateACMPCAIssueCertificate
+    DependsOn: 
+      - UpdateACMPCAIssueCertificate
+      - PrivateRouteTableAAssociation
+      - PrivateRouteA
+      - NATGateway
+      - InternetGatewayAttachment
     Properties:
       ClusterName: MSK-Demo02
       KafkaVersion: "2.2.1"
@@ -263,6 +243,11 @@ Resources:
           Enabled: True
   MSKCluster03:
     Type: AWS::MSK::Cluster
+    DependsOn: 
+      - PrivateRouteTableAAssociation
+      - PrivateRouteA
+      - NATGateway
+      - InternetGatewayAttachment
     Properties:
       ClusterName: MSK-Demo03
       KafkaVersion: "2.2.1"
@@ -288,6 +273,11 @@ Resources:
             Enabled: True
   MSKCluster04:
     Type: AWS::MSK::Cluster
+    DependsOn: 
+      - PrivateRouteTableAAssociation
+      - PrivateRouteA
+      - NATGateway
+      - InternetGatewayAttachment
     Properties:
       ClusterName: MSK-Demo04
       KafkaVersion: "2.2.1"
@@ -313,6 +303,11 @@ Resources:
             Enabled: True
   PrivateBastionHost:
     Type: AWS::EC2::Instance
+    DependsOn: 
+      - PrivateRouteTableAAssociation
+      - PrivateRouteA
+      - NATGateway
+      - InternetGatewayAttachment
     Properties:
       ImageId: !Ref LatestAmiId
       SubnetId: !Ref PrivateSubnetA
@@ -336,7 +331,14 @@ Resources:
               curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip"
               unzip awscliv2.zip
               sudo ./aws/install
-              echo export PATH=${!PATH}:/opt/kafka_2.12-2.2.1/bin >> /opt/kafka_2.12-2.2.1/msk.env
+              wget https://dlcdn.apache.org/maven/maven-3/3.8.4/binaries/apache-maven-3.8.4-bin.zip
+              unzip apache-maven-3.8.4-bin.zip
+              mv apache-maven-3.8.4 /opt/apache-maven-3.8.4
+              wget https://d9ucep4yhvgl.cloudfront.net/msk-producer-consumer.zip
+              unzip msk-producer-consumer.zip
+              mv msk-producer-consumer.zip /opt/msk-java
+              chmod 777 /opt/msk-java
+              echo export PATH=${!PATH}:/opt/kafka_2.12-2.2.1/bin:/opt/apache-maven-3.8.4/bin >> /opt/kafka_2.12-2.2.1/msk.env
               echo export MSK01_ARN=${MSK01ARN} >> /opt/kafka_2.12-2.2.1/msk.env
               echo -E export MSK01_BOOTSTRAP=`aws kafka get-bootstrap-brokers --cluster-arn ${MSK01ARN} --query BootstrapBrokerStringTls --region ${AWS::Region}` >> /opt/kafka_2.12-2.2.1/msk.env
               echo -E export MSK01_ZOOKEEPER=`aws kafka describe-cluster --cluster-arn ${MSK01ARN} --region ${AWS::Region} --query ClusterInfo.ZookeeperConnectString` >> /opt/kafka_2.12-2.2.1/msk.env
@@ -432,6 +434,22 @@ Resources:
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonSSMManagedInstanceCore
         - !Ref BastionInstancePolicy
         - !Sub arn:${AWS::Partition}:iam::aws:policy/AmazonMSKFullAccess
+        - !Ref KafkaClusterAccessPolicy
+  KafkaClusterAccessPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      Description: MSK Cluster Access Policy
+      PolicyDocument:
+        Version: 2012-10-17
+        Statement:
+          -
+            Effect: Allow
+            Action: 
+              - kafka-cluster:*
+            Resource:
+              - !Sub arn:${AWS::Partition}:kafka:${AWS::Region}:${AWS::AccountId}:cluster/*
+              - !Sub arn:${AWS::Partition}:kafka:${AWS::Region}:${AWS::AccountId}:topic/*
+              - !Sub arn:${AWS::Partition}:kafka:${AWS::Region}:${AWS::AccountId}:group/*
   BastionInstancePolicy:
     Type: AWS::IAM::ManagedPolicy
     Properties:
