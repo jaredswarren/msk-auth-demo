@@ -337,7 +337,7 @@ Resources:
               wget https://d9ucep4yhvgl.cloudfront.net/msk-producer-consumer.zip
               unzip msk-producer-consumer.zip
               mv msk-producer-consumer /opt/msk-java
-              chmod 777 /opt/msk-java
+              chmod -R 777 /opt/msk-java
               echo export PATH=${!PATH}:/opt/kafka_2.12-2.2.1/bin:/opt/apache-maven-3.8.4/bin >> /opt/kafka_2.12-2.2.1/msk.env
               echo export MSK01_ARN=${MSK01ARN} >> /opt/kafka_2.12-2.2.1/msk.env
               echo -E export MSK01_BOOTSTRAP=`aws kafka get-bootstrap-brokers --cluster-arn ${MSK01ARN} --query BootstrapBrokerStringTls --region ${AWS::Region}` >> /opt/kafka_2.12-2.2.1/msk.env
